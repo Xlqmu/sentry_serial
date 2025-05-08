@@ -14,6 +14,8 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/int32.hpp>
 
+#include "rm_serial/packet_typedef.hpp"
+#include "rm_serial/crc8_crc16.hpp"
 #include "rm_interfaces/msg/gimbal_state.hpp"
 #include "rm_interfaces/msg/gimbal_cmd.hpp"
 #include "rm_interfaces/msg/serial_receive_data.hpp"

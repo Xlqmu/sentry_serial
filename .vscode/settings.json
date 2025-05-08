@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "*.html": "html",
+        "vector": "cpp",
+        "cstdint": "cpp",
+        "array": "cpp",
+        "string": "cpp",
+        "string_view": "cpp",
+        "span": "cpp"
+    }
+}

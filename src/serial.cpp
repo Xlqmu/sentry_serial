@@ -1,4 +1,5 @@
-//// filepath: /home/sentry_nav2/src/rm_interfaces/src/serial.cpp
+#ifdef RM_SERIAL_DRIVER_HPP
+#define RM_SERIAL_DRIVER_HPP
 #include "rm_serial/serial_driver.hpp"
 #include <chrono>
 #include <cstring>
@@ -679,3 +680,5 @@ int main(int argc, char* argv[])
     rclcpp::shutdown();
     return 0;
 }
+
+#endif // RM_SERIAL_DRIVER_HPP
