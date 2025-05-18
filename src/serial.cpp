@@ -89,8 +89,8 @@ SerialDriver::SerialDriver(const rclcpp::NodeOptions & options)
         "/goal_pose", 10);
     // 设置导航点（注意，此处坐标需与地图坐标系一致）
     center_point_.header.frame_id = "map";
-    center_point_.pose.position.x = 2.90;   // 修改为实际中心点坐标
-    center_point_.pose.position.y = 0.25;
+    center_point_.pose.position.x = 0.00;   // 修改为实际中心点坐标
+    center_point_.pose.position.y = 0.00;
     center_point_.pose.orientation.w = 1.0; // 无旋转
     
     start_point_.header.frame_id = "map";

@@ -1,0 +1,27 @@
+serial_driver: # Node name
+  ros__parameters:
+    serial_port: "/dev/ttyUSB0" # Serial port for the device
+    baud_rate: 115200
+    cmd_timeout: 10.0
+    timer_period: 0.01 # 100 Hz
+    reconnect_delay: 5.0 # seconds
+    max_reconnect_attempts: 10 # 0 for unlimited
+    use_fixed_goal: false
+    base_frame_id: "odom"
+    gimbal_frame_id: "gimbal_link"
+    default_bullet_speed: 20.0 # Example value, different from C++ default
+
+    navigation_points:
+      map_frame_id: "map" # Frame ID for the navigation goals
+      center_point:
+        x: 1.5
+        y: -0.5
+        yaw: 0.785 # Radians (e.g., 45 degrees)
+      start_point:
+        x: -2.0
+        y: 1.0
+        yaw: -1.57 # Radians (e.g., -90 degrees)
+
+    decision_maker_params:
+      low_blood_threshold: 150 # HP
+      low_ammo_threshold: 10   # Number of projectiles
