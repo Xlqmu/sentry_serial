@@ -4,6 +4,7 @@
 #include <cstring> // For strerror, memset, memcpy
 #include <termios.h> // For termios struct and baud rate constants
 #include <algorithm> // For std::min
+#include <chrono> // For time measurements
 
 namespace rm_serial
 {
@@ -152,7 +153,7 @@ uint8_t SerialCommunicator::calculate_checksum(const uint8_t* data, size_t lengt
 {
     uint8_t checksum = 0;
     for (size_t i = 0; i < length; i++) {
-        checksum ^= data[i]; // XOR checksum
+        checksum ^= data[i]; // XOR checksum calculation
     }
     return checksum;
 }
@@ -160,6 +161,7 @@ uint8_t SerialCommunicator::calculate_checksum(const uint8_t* data, size_t lengt
 bool SerialCommunicator::write_payload(const std::vector<uint8_t>& payload)
 {
     if (serial_fd_ < 0 || payload.empty()) {
+        RCLCPP_ERROR(logger_, "Write_payload: Serial port not open or payload empty.");
         return false;
     }
 
@@ -167,20 +169,32 @@ bool SerialCommunicator::write_payload(const std::vector<uint8_t>& payload)
     frame.reserve(payload.size() + 3); // Header + Payload + Checksum + Tail
     frame.push_back(PacketFormat::FRAME_HEADER);
     frame.insert(frame.end(), payload.begin(), payload.end());
-    uint8_t checksum = calculate_checksum(payload.data(), payload.size());
-    frame.push_back(checksum);
+    const uint8_t fixed_checksum_to_send = 0x01; // 发送固定的校验和
+    frame.push_back(fixed_checksum_to_send);
     frame.push_back(PacketFormat::FRAME_TAIL);
 
     ssize_t total_written = 0;
     const size_t frame_size = frame.size();
+    int eagain_retries = 0;
+    auto write_start_time = std::chrono::steady_clock::now();
     
     while (total_written < static_cast<ssize_t>(frame_size)) {
         ssize_t written = write(serial_fd_, frame.data() + total_written, frame_size - total_written);
         if (written < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                eagain_retries++;
                 // Non-blocking, try again later or use select/poll
-                RCLCPP_DEBUG(logger_, "Write would block, trying again.");
+                // RCLCPP_DEBUG(logger_, "Write would block, trying again."); // This might be too verbose if it happens often
                 rclcpp::sleep_for(std::chrono::microseconds(100)); // Small delay
+                
+                // Safety break if it retries too many times, indicating a persistent issue
+                if (eagain_retries > 1000) { // Threshold for too many retries, adjust as needed
+                    RCLCPP_ERROR(logger_, "Write_payload: Excessive EAGAIN retries (%d) for a single frame. Aborting write.", eagain_retries);
+                    auto write_end_time_err = std::chrono::steady_clock::now();
+                    auto duration_err = std::chrono::duration_cast<std::chrono::milliseconds>(write_end_time_err - write_start_time);
+                    RCLCPP_WARN(logger_, "Write_payload: Time spent before aborting due to EAGAIN: %lld ms", duration_err.count());
+                    return false; 
+                }
                 continue;
             }
             RCLCPP_ERROR(logger_, "Failed to write to serial port %s: %s", port_.c_str(), strerror(errno));
@@ -190,12 +204,27 @@ bool SerialCommunicator::write_payload(const std::vector<uint8_t>& payload)
             return false;
         }
         if (written == 0 && frame_size > 0) { // Should not happen with O_NONBLOCK if no error
-             RCLCPP_WARN(logger_, "Write returned 0, port may be problematic.");
+             RCLCPP_WARN(logger_, "Write returned 0, port may be problematic. Retrying.");
              rclcpp::sleep_for(std::chrono::microseconds(100));
+             eagain_retries++; // Count this as a retry scenario as well
+             if (eagain_retries > 1000) {
+                 RCLCPP_ERROR(logger_, "Write_payload: Excessive retries (write returned 0) for a single frame. Aborting write.");
+                 return false;
+             }
              continue;
         }
         total_written += written;
     }
+
+    auto write_end_time = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(write_end_time - write_start_time);
+
+    if (eagain_retries > 0) {
+        RCLCPP_WARN(logger_, "Write_payload: Frame (size %zu) sent with %d EAGAIN retries. Total write time: %lld µs.", frame_size, eagain_retries, duration.count());
+    } else {
+        RCLCPP_DEBUG(logger_, "Write_payload: Frame (size %zu) sent successfully. Write time: %lld µs.", frame_size, duration.count());
+    }
+    
     return true;
 }
 
@@ -243,9 +272,9 @@ bool SerialCommunicator::read_payload(std::vector<uint8_t>& payload, size_t expe
                 // Potential frame found
                 const uint8_t* data_part_ptr = rx_buffer_.data() + i + 1;
                 uint8_t received_checksum = rx_buffer_[i + 1 + expected_payload_size];
-                uint8_t calculated_checksum = calculate_checksum(data_part_ptr, expected_payload_size);
+                const uint8_t expected_fixed_checksum = 0x01; // 下位机发送的固定校验和
 
-                if (received_checksum == calculated_checksum) {
+                if (received_checksum == expected_fixed_checksum) {
                     // Valid frame
                     payload.assign(data_part_ptr, data_part_ptr + expected_payload_size);
                     // Remove the processed frame from the buffer
@@ -253,7 +282,7 @@ bool SerialCommunicator::read_payload(std::vector<uint8_t>& payload, size_t expe
                     return true;
                 } else {
                     RCLCPP_WARN(logger_, "Checksum mismatch. Expected 0x%02X, Got 0x%02X. Discarding byte 0x%02X.",
-                                calculated_checksum, received_checksum, rx_buffer_[i]);
+                                expected_fixed_checksum, received_checksum, rx_buffer_[i]);
                     // Checksum failed, discard the header and continue search
                     rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + i + 1);
                     i = 0; // Restart search from beginning of modified buffer

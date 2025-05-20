@@ -30,8 +30,8 @@ include_directories(
 #)
 
 # 测试版本
-add_executable(serialcopy
-  src/serialcopy.cpp
+add_executable(serialrmuc
+  src/serialrmuc.cpp
   src/serial_communicator.cpp
   src/decision_maker.cpp
   src/ros_interface.cpp)
@@ -56,7 +56,7 @@ add_executable(serialcopy
 #  nav2_msgs
 #)
 
-ament_target_dependencies(serialcopy
+ament_target_dependencies(serialrmuc
   rclcpp
   std_msgs
   geometry_msgs
@@ -71,7 +71,7 @@ ament_target_dependencies(serialcopy
 # 安装可执行文件
 install(TARGETS
 #  serial_driver
-  serialcopy
+  serialrmuc
   DESTINATION lib/${PROJECT_NAME}
 )
 

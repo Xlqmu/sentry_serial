@@ -21,10 +21,9 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package='rm_serial',
-            executable='serialcopy',
-            name='serial_driver',
+            executable='serialrmuc',
+            name='serialrmuc',
             output='screen',
             parameters=[config_file_path]
         )
     ])
-    

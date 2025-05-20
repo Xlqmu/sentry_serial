@@ -160,8 +160,8 @@ void SerialDriver::init_state()
 void SerialDriver::send_nav_goal(const geometry_msgs::msg::PoseStamped & goal_pose)
 {
     // 等待 Action 服务器
-    if (!nav_client_->wait_for_action_server(std::chrono::seconds(1))) {
-        RCLCPP_ERROR(this->get_logger(), "导航Action服务不可用");
+    if (!nav_client_->wait_for_action_server(std::chrono::milliseconds(10))) { // 将超时从1秒更改为10毫秒
+        RCLCPP_ERROR(this->get_logger(), "导航Action服务不可用 (等待10ms超时)");
         return;
     }
     nav2_msgs::action::NavigateToPose::Goal goal_msg;
