@@ -16,11 +16,15 @@ serial_driver: # Node name
       center_point:
         x: 1.5
         y: -0.5
-        yaw: 0.785 # Radians (e.g., 45 degrees)
+        yaw: 0.0 # Radians (e.g., 45 degrees)
       start_point:
-        x: -2.0
-        y: 1.0
-        yaw: -1.57 # Radians (e.g., -90 degrees)
+        x: 0.0
+        y: 0.0
+        yaw: 0.0 # Radians (e.g., -90 degrees)
+      helper_point:
+        x: -1.0
+        y: 2.0
+        yaw: 0.0 # Radians (e.g., 0 degrees)
 
     decision_maker_params:
       low_blood_threshold: 150 # HP

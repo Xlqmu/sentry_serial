@@ -18,7 +18,8 @@ SerialDriver::SerialDriver(const rclcpp::NodeOptions & options)
   nav_data_updated_(true),
   gimbal_data_updated_(false),
   is_navigating_to_center_(false),
-  is_navigating_to_start_(false)
+  is_navigating_to_start_(false),
+  is_navigating_to_healing_(false) // 初始化新变量
 {
     init_params(); // All parameters are initialized here
     
@@ -34,6 +35,7 @@ SerialDriver::SerialDriver(const rclcpp::NodeOptions & options)
         this,
         center_point_, // initialized from params
         start_point_,  // initialized from params
+        helper_point_, // 传入辅助点
         low_blood_threshold_, // Pass configured threshold
         low_ammo_threshold_   // Pass configured threshold
     );
@@ -95,8 +97,8 @@ void SerialDriver::init_params()
 
     // Navigation points parameters
     this->declare_parameter("navigation_points.map_frame_id", "map");
-    this->declare_parameter("navigation_points.center_point.x", 0.0);
-    this->declare_parameter("navigation_points.center_point.y", 0.0);
+    this->declare_parameter("navigation_points.center_point.x", 5.21);
+    this->declare_parameter("navigation_points.center_point.y", -4.47);
     this->declare_parameter("navigation_points.center_point.yaw", 0.0); // Yaw in radians
     this->declare_parameter("navigation_points.start_point.x", 0.0);
     this->declare_parameter("navigation_points.start_point.y", 0.0);
@@ -106,7 +108,11 @@ void SerialDriver::init_params()
     this->declare_parameter("decision_maker_params.low_blood_threshold", 150);
     this->declare_parameter("decision_maker_params.low_ammo_threshold", 0);
 
-
+    // 添加helper_point参数声明
+    this->declare_parameter("navigation_points.helper_point.x", -0.82);
+    this->declare_parameter("navigation_points.helper_point.y", -6.05);
+    this->declare_parameter("navigation_points.helper_point.yaw", 0.0);
+    
     serial_port_ = this->get_parameter("serial_port").as_string();
     baud_rate_ = this->get_parameter("baud_rate").as_int(); 
     cmd_timeout_ = this->get_parameter("cmd_timeout").as_double();
@@ -137,6 +143,15 @@ void SerialDriver::init_params()
     q_start.setRPY(0, 0, this->get_parameter("navigation_points.start_point.yaw").as_double());
     start_point_.pose.orientation = tf2::toMsg(q_start);
 
+    // 读取辅助点坐标
+    helper_point_.header.frame_id = nav_points_map_frame_id_;
+    helper_point_.pose.position.x = this->get_parameter("navigation_points.helper_point.x").as_double();
+    helper_point_.pose.position.y = this->get_parameter("navigation_points.helper_point.y").as_double();
+    helper_point_.pose.position.z = 0.0; // Assuming 2D navigation
+    tf2::Quaternion q_helper;
+    q_helper.setRPY(0, 0, this->get_parameter("navigation_points.helper_point.yaw").as_double());
+    helper_point_.pose.orientation = tf2::toMsg(q_helper);
+    
     // Get decision maker parameters
     low_blood_threshold_ = this->get_parameter("decision_maker_params.low_blood_threshold").as_int();
     low_ammo_threshold_ = this->get_parameter("decision_maker_params.low_ammo_threshold").as_int();
@@ -146,6 +161,7 @@ void SerialDriver::init_params()
     RCLCPP_INFO(this->get_logger(), "Default Bullet Speed: %.2f (Default: 18.0)", default_bullet_speed_);
     RCLCPP_INFO(this->get_logger(), "Center Point X: %.2f (Default: 0.0)", center_point_.pose.position.x);
     RCLCPP_INFO(this->get_logger(), "Low Blood Threshold: %d (Default: 150)", low_blood_threshold_);
+    RCLCPP_INFO(this->get_logger(), "Helper Point X: %.2f (Default: 0.0)", helper_point_.pose.position.x);
     RCLCPP_INFO(this->get_logger(), "--- End Loaded Parameters ---");
 }
 
@@ -183,10 +199,17 @@ void SerialDriver::send_nav_goal(const geometry_msgs::msg::PoseStamped & goal_po
     {
         if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
             RCLCPP_INFO(this->get_logger(), "导航目标返回结果：成功");
+            
+            // 修改：根据当前导航的目标切换模式
             if (is_navigating_to_center_) {
-                // 如果反馈没有触发，仍在中心点目标状态，则也切换模式
-                move_mode_ = 2;
+                move_mode_ = 2; // 自瞄模式
                 RCLCPP_INFO(this->get_logger(), "导航到中心点完成，切换模式到自瞄模式(2)");
+                is_navigating_to_center_ = false; // 重置标志
+            } 
+            else if (is_navigating_to_healing_) {
+                // 到达回血点后不改变模式，等待decision_maker根据RFID和血量/弹药状态决定
+                RCLCPP_INFO(this->get_logger(), "导航到回血点完成，等待血量/弹药恢复");
+                // 保持is_navigating_to_healing_为true
             }
         } else {
             RCLCPP_WARN(this->get_logger(), "导航目标返回结果：失败");
@@ -269,6 +292,7 @@ void SerialDriver::timer_callback()
                         move_mode_,
                         is_navigating_to_center_,
                         is_navigating_to_start_,
+                        is_navigating_to_healing_,  // 添加这个参数
                         current_time
                     );
 
@@ -276,6 +300,7 @@ void SerialDriver::timer_callback()
                     move_mode_ = decision.new_move_mode;
                     is_navigating_to_center_ = decision.updated_is_nav_to_center;
                     is_navigating_to_start_ = decision.updated_is_nav_to_start;
+                    is_navigating_to_healing_ = decision.updated_is_nav_to_healing;  // 更新这个变量
 
                     if (decision.send_goal) {
                         send_nav_goal(decision.goal_to_send);
@@ -348,8 +373,10 @@ void SerialDriver::timer_callback()
 
 void SerialDriver::gimbal_cmd_callback(std::shared_ptr<const rm_interfaces::msg::GimbalCmd> msg)
 {
-    gimbal_data_[0] = msg->pitch_diff;  // 直接使用pitch_diff字段
-    gimbal_data_[1] = msg->yaw_diff;    // 直接使用yaw_diff字段
+    // 这里电控的云台控制和正常的yaw、pitch控制是相反的
+
+    gimbal_data_[0] = msg->yaw_diff;  // 直接使用pitch_diff字段
+    gimbal_data_[1] = msg->pitch_diff;    // 直接使用yaw_diff字段
     gimbal_data_[2] = msg->distance;    // 距离字段
     gimbal_data_[3] = static_cast<float>(msg->fire_advice ? 1 : 0);  // 使用fire_advice字段
     
@@ -357,7 +384,7 @@ void SerialDriver::gimbal_cmd_callback(std::shared_ptr<const rm_interfaces::msg:
     gimbal_data_updated_ = true;
 
     // 添加日志记录接收到的自瞄数据
-    RCLCPP_INFO(this->get_logger(), "接收自瞄数据: pitch=%.2f, yaw=%.2f, dist=%.2f, fire=%d", 
+    RCLCPP_DEBUG(this->get_logger(), "接收自瞄数据: pitch=%.2f, yaw=%.2f, dist=%.2f, fire=%d", 
                gimbal_data_[0], gimbal_data_[1], gimbal_data_[2], static_cast<int>(gimbal_data_[3]));
 }
 

@@ -86,8 +86,10 @@ private:
   
   geometry_msgs::msg::PoseStamped center_point_;
   geometry_msgs::msg::PoseStamped start_point_;
+  geometry_msgs::msg::PoseStamped helper_point_;  // 添加辅助点
   bool is_navigating_to_center_;
   bool is_navigating_to_start_;
+  bool is_navigating_to_healing_;  // 添加这个变量声明
   
   // ROS Communications (Subscribers, Action Client, specific Publishers not in RosInterface)
   rclcpp::Subscription<rm_interfaces::msg::GimbalCmd>::SharedPtr gimbal_cmd_sub_;
