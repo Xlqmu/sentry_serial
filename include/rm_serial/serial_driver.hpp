@@ -19,6 +19,7 @@
 #include "rm_interfaces/msg/serial_receive_data.hpp"
 #include "rm_interfaces/msg/judge_system_data.hpp"
 #include "rm_interfaces/msg/operator_command.hpp"
+#include "rm_interfaces/srv/set_mode.hpp"
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
@@ -105,6 +106,20 @@ private:
   std::unique_ptr<rm_serial::SerialCommunicator> communicator_;
   std::unique_ptr<rm_serial::DecisionMaker> decision_maker_;
   std::unique_ptr<rm_serial::RosInterface> ros_interface_;
+
+
+
+  // 添加模式服务客户端相关的成员变量
+  std::vector<rclcpp::Client<rm_interfaces::srv::SetMode>::SharedPtr> mode_clients_;
+  uint8_t last_aim_color_;
+  
+  // 添加模式服务客户端相关的方法
+  void init_mode_service_clients();
+  void check_aim_color_change(uint8_t current_aim_color);
+  void call_set_mode_service(uint8_t mode);
+  void handle_service_response(
+      rclcpp::Client<rm_interfaces::srv::SetMode>::SharedFuture future,
+      const std::string& service_name);
 };
 
 #endif  // RM_SERIAL__SERIAL_DRIVER_HPP_ // Changed include guard

@@ -19,7 +19,8 @@ SerialDriver::SerialDriver(const rclcpp::NodeOptions & options)
   gimbal_data_updated_(false),
   is_navigating_to_center_(false),
   is_navigating_to_start_(false),
-  is_navigating_to_healing_(false) // 初始化新变量
+  is_navigating_to_healing_(false), // 初始化新变量
+  last_aim_color_(255) // 初始化为不可能的值
 {
     init_params(); // All parameters are initialized here
     
@@ -47,6 +48,9 @@ SerialDriver::SerialDriver(const rclcpp::NodeOptions & options)
         default_bullet_speed_ // Pass the configured default bullet speed
     );
 
+    // 初始化模式服务客户端
+    init_mode_service_clients();
+
     init_state(); 
     
     RCLCPP_INFO(this->get_logger(), "RxPacket size: %zu, TxPacket size: %zu",
@@ -73,6 +77,92 @@ SerialDriver::SerialDriver(const rclcpp::NodeOptions & options)
 
     nav_client_ = rclcpp_action::create_client<nav2_msgs::action::NavigateToPose>(this, "/red_standard_robot1/navigate_to_pose");
 
+}
+
+// 新增：初始化模式服务客户端
+void SerialDriver::init_mode_service_clients()
+{
+    // 创建服务客户端
+    auto client1 = this->create_client<rm_interfaces::srv::SetMode>(
+        "armor_detector/set_mode", rmw_qos_profile_services_default);
+    auto client2 = this->create_client<rm_interfaces::srv::SetMode>(
+        "armor_solver/set_mode", rmw_qos_profile_services_default);
+    auto client3 = this->create_client<rm_interfaces::srv::SetMode>(
+        "rune_detector/set_mode", rmw_qos_profile_services_default);
+    auto client4 = this->create_client<rm_interfaces::srv::SetMode>(
+        "rune_solver/set_mode", rmw_qos_profile_services_default);
+    
+    mode_clients_ = {client1, client2, client3, client4};
+    
+    RCLCPP_INFO(this->get_logger(), "Mode service clients initialized (%zu clients)", mode_clients_.size());
+}
+
+// 新增：检查aim_color变化并调用服务
+void SerialDriver::check_aim_color_change(uint8_t current_aim_color)
+{
+    if (current_aim_color != last_aim_color_) {
+        RCLCPP_INFO(this->get_logger(), "aim_color changed from %d to %d, calling set_mode services", 
+                   last_aim_color_, current_aim_color);
+        last_aim_color_ = current_aim_color;
+        call_set_mode_service(current_aim_color);
+    }
+}
+
+// 新增：调用设置模式服务
+void SerialDriver::call_set_mode_service(uint8_t mode)
+{
+    // 为所有客户端准备并发送请求
+    std::vector<std::string> service_names = {
+        "armor_detector/set_mode",
+        "armor_solver/set_mode", 
+        "rune_detector/set_mode",
+        "rune_solver/set_mode"
+    };
+
+    for (size_t i = 0; i < mode_clients_.size(); ++i) {
+        auto client = mode_clients_[i];
+        const std::string& service_name = service_names[i];
+        
+        // 检查服务是否可用 - 不阻塞
+        if (!client->service_is_ready()) {
+            RCLCPP_DEBUG(this->get_logger(), "Service %s not available yet, skipping", service_name.c_str());
+            continue;
+        }
+        
+        // 创建请求
+        auto request = std::make_shared<rm_interfaces::srv::SetMode::Request>();
+        request->mode = mode;
+        
+        // 记录详细请求信息
+        RCLCPP_INFO(this->get_logger(), "Calling service %s with mode: %d", service_name.c_str(), mode);
+        
+        // 异步调用服务
+        auto future = client->async_send_request(
+            request,
+            [this, service_name](rclcpp::Client<rm_interfaces::srv::SetMode>::SharedFuture future) {
+                this->handle_service_response(future, service_name);
+            });
+    }
+}
+
+// 新增：处理服务响应
+void SerialDriver::handle_service_response(
+    rclcpp::Client<rm_interfaces::srv::SetMode>::SharedFuture future,
+    const std::string& service_name)
+{
+    try {
+        auto response = future.get();
+        if (response->success) {
+            RCLCPP_INFO(this->get_logger(), "Successfully set mode for %s: %s", 
+                       service_name.c_str(), response->message.c_str());
+        } else {
+            RCLCPP_ERROR(this->get_logger(), "Failed to set mode for %s: %s", 
+                        service_name.c_str(), response->message.c_str());
+        }
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(this->get_logger(), "Exception while getting response from %s: %s", 
+                    service_name.c_str(), e.what());
+    }
 }
 
 SerialDriver::~SerialDriver()

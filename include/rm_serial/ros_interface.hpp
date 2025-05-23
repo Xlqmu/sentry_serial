@@ -9,7 +9,7 @@
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_ros/transform_broadcaster.h"
-#include <optional> // 更改为使用 optional 或指针
+#include <optional>
 
 namespace rm_serial
 {
@@ -21,7 +21,7 @@ public:
         rclcpp::Node* node,
         const std::string& base_frame_id,
         const std::string& gimbal_frame_id,
-        double default_bullet_speed); // Added default_bullet_speed parameter
+        double default_bullet_speed);
 
     void publish_feedback_data(
         const rclcpp::Time& stamp,
@@ -34,7 +34,7 @@ private:
 
     std::string base_frame_id_;
     std::string gimbal_frame_id_;
-    double default_bullet_speed_; // Will be set from constructor argument
+    double default_bullet_speed_;
     rclcpp::Logger logger_;
 };
 
