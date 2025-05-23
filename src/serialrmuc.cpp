@@ -100,11 +100,31 @@ void SerialDriver::init_mode_service_clients()
 // 新增：检查aim_color变化并调用服务
 void SerialDriver::check_aim_color_change(uint8_t current_aim_color)
 {
-    if (current_aim_color != last_aim_color_) {
-        RCLCPP_INFO(this->get_logger(), "aim_color changed from %d to %d, calling set_mode services", 
-                   last_aim_color_, current_aim_color);
-        last_aim_color_ = current_aim_color;
-        call_set_mode_service(current_aim_color);
+    static auto last_service_call_time = this->now();
+    static const double MIN_CALL_INTERVAL = 3.0; // 最小调用间隔1秒
+    
+    // 只要aim_color是0或1
+    if (current_aim_color == 0 || current_aim_color == 1) {
+        auto current_time = this->now();
+        double time_since_last_call = (current_time - last_service_call_time).seconds();
+        
+        // 检查是否需要调用服务：值变化了 或者 超过了最小调用间隔
+        bool should_call = (current_aim_color != last_aim_color_) || 
+                          (last_aim_color_ == 255) || 
+                          (time_since_last_call > MIN_CALL_INTERVAL);
+        
+        if (should_call) {
+            RCLCPP_INFO(this->get_logger(), "Valid aim_color: %d (last: %d, interval: %.2fs), calling set_mode services", 
+                       current_aim_color, last_aim_color_, time_since_last_call);
+            last_aim_color_ = current_aim_color;
+            last_service_call_time = current_time;
+            call_set_mode_service(current_aim_color);
+        } else {
+            RCLCPP_DEBUG(this->get_logger(), "aim_color: %d, too soon to call again (%.2fs < %.2fs)", 
+                        current_aim_color, time_since_last_call, MIN_CALL_INTERVAL);
+        }
+    } else {
+        RCLCPP_DEBUG(this->get_logger(), "Invalid aim_color: %d, ignoring", current_aim_color);
     }
 }
 
@@ -410,6 +430,10 @@ void SerialDriver::timer_callback()
                     "RX (processed by SerialDriver): aim_color=%d, roll=%.2f, pitch_g=%.2f, yaw_g=%.2f, hp=%d, game_status=%d",
                     rx_packet.aim_color, rx_packet.roll, 
                     rx_packet.pitch_gimbal, rx_packet.yaw_gimbal, rx_packet.blood, rx_packet.game_status);
+                
+                check_aim_color_change(rx_packet.aim_color); // 检查是否需要调用服务
+                RCLCPP_INFO(this->get_logger(), "aim_color=%d, last_aim_color=%d", rx_packet.aim_color, last_aim_color_);
+                
             } else {
                  RCLCPP_WARN(this->get_logger(), "Read payload size mismatch. Expected %zu, Got %zu", PacketFormat::RX_PACKET_SIZE, received_payload.size());
             }
