@@ -285,8 +285,13 @@ void SerialDriver::init_state()
 
 void SerialDriver::send_nav_goal(const geometry_msgs::msg::PoseStamped & goal_pose)
 {
+    // if (is_navigating_to_center_ || is_navigating_to_healing_) {
+    //     RCLCPP_WARN(this->get_logger(), "导航已在进行中，忽略重复目标");
+    //     return;
+    // }
+
     // 等待 Action 服务器
-    if (!nav_client_->wait_for_action_server(std::chrono::milliseconds(1000))) { // 将超时从1秒更改为10毫秒
+    if (!nav_client_->wait_for_action_server(std::chrono::milliseconds(10))) { // 将超时从1秒更改为10毫秒
         RCLCPP_ERROR(this->get_logger(), "导航Action服务不可用 (等待10ms超时)");
         return;
     }
