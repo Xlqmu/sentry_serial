@@ -125,8 +125,8 @@ DecisionResult DecisionMaker::make_decision(
         }
         // 其他比赛中状态：使用自瞄模式
         else {
-            if (current_move_mode != 2) {
-                result.new_move_mode = 2; // 自瞄模式
+            if (game_status != 4) {
+                result.new_move_mode = 4; // 自瞄模式
                 result.mode_was_changed = true;
                 RCLCPP_INFO(logger_, "Game active but conditions not met. Switching to aim mode (2).");
             }

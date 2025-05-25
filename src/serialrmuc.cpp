@@ -101,7 +101,7 @@ void SerialDriver::init_mode_service_clients()
 void SerialDriver::check_aim_color_change(uint8_t current_aim_color)
 {
     static auto last_service_call_time = this->now();
-    static const double MIN_CALL_INTERVAL = 3.0; // 最小调用间隔1秒
+    static const double MIN_CALL_INTERVAL = 420.0; // 最小调用间隔1秒
     
     // 只要aim_color是0或1
     if (current_aim_color == 0 || current_aim_color == 1) {
@@ -268,7 +268,7 @@ void SerialDriver::init_params()
 
     RCLCPP_INFO(this->get_logger(), "--- Loaded Parameters ---");
     RCLCPP_INFO(this->get_logger(), "Serial Port: %s (Default: /dev/ttyUSB0)", serial_port_.c_str());
-    RCLCPP_INFO(this->get_logger(), "Default Bullet Speed: %.2f (Default: 18.0)", default_bullet_speed_);
+    RCLCPP_INFO(this->get_logger(), "Default Bullet Speed: %.2f (Default: 21.0)", default_bullet_speed_);
     RCLCPP_INFO(this->get_logger(), "Center Point X: %.2f (Default: 0.0)", center_point_.pose.position.x);
     RCLCPP_INFO(this->get_logger(), "Low Blood Threshold: %d (Default: 150)", low_blood_threshold_);
     RCLCPP_INFO(this->get_logger(), "Helper Point X: %.2f (Default: 0.0)", helper_point_.pose.position.x);
@@ -286,7 +286,7 @@ void SerialDriver::init_state()
 void SerialDriver::send_nav_goal(const geometry_msgs::msg::PoseStamped & goal_pose)
 {
     // 等待 Action 服务器
-    if (!nav_client_->wait_for_action_server(std::chrono::milliseconds(10))) { // 将超时从1秒更改为10毫秒
+    if (!nav_client_->wait_for_action_server(std::chrono::milliseconds(1000))) { // 将超时从1秒更改为10毫秒
         RCLCPP_ERROR(this->get_logger(), "导航Action服务不可用 (等待10ms超时)");
         return;
     }
@@ -300,8 +300,8 @@ void SerialDriver::send_nav_goal(const geometry_msgs::msg::PoseStamped & goal_po
     send_goal_options.feedback_callback =
         [this](auto, const std::shared_ptr<const nav2_msgs::action::NavigateToPose::Feedback> feedback)
     {
-        double remaining = feedback->distance_remaining;
-        RCLCPP_INFO(this->get_logger(), "导航反馈：剩余距离 = %.2f", remaining);
+        double remaining_distance = feedback->distance_remaining;
+        RCLCPP_INFO(this->get_logger(), "导航反馈：剩余距离 = %.2f", remaining_distance);
     };
 
     send_goal_options.result_callback =

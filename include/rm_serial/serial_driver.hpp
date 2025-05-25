@@ -98,7 +98,8 @@ private:
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr mode_sub_; // Assuming you might add this
   rclcpp_action::Client<nav2_msgs::action::NavigateToPose>::SharedPtr nav_client_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr nav_goal_pub_; // For fixed goal debugging
-  
+
+
   // 定时器
   rclcpp::TimerBase::SharedPtr timer_;
   
