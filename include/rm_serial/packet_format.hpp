@@ -13,6 +13,8 @@ struct PacketFormat {
     };
     // CRC16校验和初始值
     static const uint16_t CRC16_INIT = 0xFFFF;
+    // CRC8校验和初始值 (假设一个常用的CRC8初始值，您可能需要根据您的CRC8算法调整)
+    static const uint8_t CRC8_INIT = 0x00;
 
 
     struct __attribute__((packed)) RxPacket {
@@ -46,9 +48,9 @@ struct PacketFormat {
     static const size_t RX_PACKET_SIZE = sizeof(RxPacket);
     static const size_t TX_PACKET_SIZE = sizeof(TxPacket);
     
-    // 帧总大小 = 帧头(1字节) + 数据包 + CRC16校验和(2字节) + 帧尾(1字节)
-    static const size_t RX_FRAME_SIZE = RX_PACKET_SIZE + 1 + 2 + 1; // Header + Payload + CRC16 + Tail
-    static const size_t TX_FRAME_SIZE = TX_PACKET_SIZE + 1 + 2 + 1; // Header + Payload + CRC16 + Tail
+    // 帧总大小 = 帧头(1字节) + 数据包 + CRC8校验和(1字节) + 帧尾(1字节)
+    static const size_t RX_FRAME_SIZE = RX_PACKET_SIZE + 1 + 1 + 1; // Header + Payload + CRC8 + Tail
+    static const size_t TX_FRAME_SIZE = TX_PACKET_SIZE + 1 + 1 + 1; // Header + Payload + CRC8 + Tail
 };
 
 #endif // RM_SERIAL__PACKET_FORMAT_HPP_

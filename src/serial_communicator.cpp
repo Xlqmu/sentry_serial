@@ -181,8 +181,8 @@ bool SerialCommunicator::write_payload(const std::vector<uint8_t>& payload)
     
     // 3. Calculate CRC on (Header + Payload)
     // At this point, frame contains Header + Payload.
-    uint16_t crc_value = crc16::get_CRC16_check_sum(
-        frame.data(), frame.size(), PacketFormat::CRC16_INIT);
+    uint16_t crc_value = crc8::get_CRC8_check_sum(
+        frame.data(), frame.size(), PacketFormat::CRC8_INIT);
         
     // 4. Add CRC (LSB, then MSB)
     frame.push_back(static_cast<uint8_t>(crc_value & 0xFF)); // LSB
@@ -282,8 +282,8 @@ bool SerialCommunicator::read_payload(std::vector<uint8_t>& payload, size_t expe
 
     read_raw_data_into_buffer(); // Attempt to read new data
 
-    const size_t crc_field_size = 2; // CRC is 2 bytes
-    // Expected frame: Header (1) + Payload (expected_payload_size) + CRC (2) + Tail (1)
+    const size_t crc_field_size = 1; // CRC is 1 bytes
+    // Expected frame: Header (1) + Payload (expected_payload_size) + CRC (1) + Tail (1)
     const size_t expected_frame_size = 1 + expected_payload_size + crc_field_size + 1;
 
     for (size_t i = 0; (i + expected_frame_size) <= rx_buffer_.size(); ) {
@@ -296,8 +296,8 @@ bool SerialCommunicator::read_payload(std::vector<uint8_t>& payload, size_t expe
                 uint8_t* data_for_crc_ptr = rx_buffer_.data() + i; // Removed const
                 size_t length_for_crc = 1 + expected_payload_size;
                 
-                uint16_t calculated_crc = crc16::get_CRC16_check_sum(
-                    data_for_crc_ptr, length_for_crc, PacketFormat::CRC16_INIT);
+                uint8_t calculated_crc = crc8::get_CRC8_check_sum(
+                    data_for_crc_ptr, length_for_crc, PacketFormat::CRC8_INIT);
                 
                 // Extract received CRC from frame (LSB then MSB)
                 // CRC LSB is after Header and Payload: index i + 1 (header) + expected_payload_size
