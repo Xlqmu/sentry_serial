@@ -34,7 +34,8 @@ add_executable(serialrmuc
   src/serialrmuc.cpp
   src/serial_communicator.cpp
   src/decision_maker.cpp
-  src/ros_interface.cpp)
+  src/ros_interface.cpp
+  src/crc8_crc16.cpp)
 
 # 链接依赖库（先为 target 指定链接库）
 #target_link_libraries(serial_driver

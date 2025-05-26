@@ -7,6 +7,7 @@
 #include <termios.h>
 #include "rclcpp/rclcpp.hpp"
 #include "rm_serial/packet_format.hpp"
+#include "rm_serial/crc8_crc16.hpp" // For checksum calculations
 
 namespace rm_serial
 {

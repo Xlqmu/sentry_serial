@@ -1,4 +1,5 @@
 #include "rm_serial/serial_communicator.hpp"
+
 #include <fcntl.h>
 #include <unistd.h>
 #include <cstring> // For strerror, memset, memcpy
@@ -160,17 +161,34 @@ uint8_t SerialCommunicator::calculate_checksum(const uint8_t* data, size_t lengt
 
 bool SerialCommunicator::write_payload(const std::vector<uint8_t>& payload)
 {
-    if (serial_fd_ < 0 || payload.empty()) {
-        RCLCPP_ERROR(logger_, "Write_payload: Serial port not open or payload empty.");
+    if (serial_fd_ < 0) {
+        RCLCPP_ERROR(logger_, "Write_payload: Serial port not open.");
         return false;
+    }
+    if (payload.empty()) { // Corrected variable name from data_payload to payload
+        RCLCPP_WARN(logger_, "Write_payload: Payload is empty, nothing to send.");
+        return true; // Or false, depending on desired behavior for empty payload
     }
 
     std::vector<uint8_t> frame;
-    frame.reserve(payload.size() + 3); // Header + Payload + Checksum + Tail
+    // Reserve space for: Header (1) + Payload (payload.size()) + CRC (2) + Tail (1)
+    frame.reserve(1 + payload.size() + 2 + 1); 
+
+    // 1. Add Header
     frame.push_back(PacketFormat::FRAME_HEADER);
+    // 2. Add Payload
     frame.insert(frame.end(), payload.begin(), payload.end());
-    const uint8_t fixed_checksum_to_send = 0x01; // 发送固定的校验和
-    frame.push_back(fixed_checksum_to_send);
+    
+    // 3. Calculate CRC on (Header + Payload)
+    // At this point, frame contains Header + Payload.
+    uint16_t crc_value = crc16::get_CRC16_check_sum(
+        frame.data(), frame.size(), PacketFormat::CRC16_INIT);
+        
+    // 4. Add CRC (LSB, then MSB)
+    frame.push_back(static_cast<uint8_t>(crc_value & 0xFF)); // LSB
+    frame.push_back(static_cast<uint8_t>((crc_value >> 8) & 0xFF)); // MSB
+    
+    // 5. Add Tail
     frame.push_back(PacketFormat::FRAME_TAIL);
 
     ssize_t total_written = 0;
@@ -192,7 +210,7 @@ bool SerialCommunicator::write_payload(const std::vector<uint8_t>& payload)
                     RCLCPP_ERROR(logger_, "Write_payload: Excessive EAGAIN retries (%d) for a single frame. Aborting write.", eagain_retries);
                     auto write_end_time_err = std::chrono::steady_clock::now();
                     auto duration_err = std::chrono::duration_cast<std::chrono::milliseconds>(write_end_time_err - write_start_time);
-                    RCLCPP_WARN(logger_, "Write_payload: Time spent before aborting due to EAGAIN: %lld ms", duration_err.count());
+                    RCLCPP_WARN(logger_, "Write_payload: Time spent before aborting due to EAGAIN: %ld ms", duration_err.count()); // Changed %lld to %ld
                     return false; 
                 }
                 continue;
@@ -220,9 +238,9 @@ bool SerialCommunicator::write_payload(const std::vector<uint8_t>& payload)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(write_end_time - write_start_time);
 
     if (eagain_retries > 0) {
-        RCLCPP_WARN(logger_, "Write_payload: Frame (size %zu) sent with %d EAGAIN retries. Total write time: %lld µs.", frame_size, eagain_retries, duration.count());
+        RCLCPP_WARN(logger_, "Write_payload: Frame (size %zu) sent with %d EAGAIN retries. Total write time: %ld µs.", frame_size, eagain_retries, duration.count()); // Changed %lld to %ld
     } else {
-        RCLCPP_DEBUG(logger_, "Write_payload: Frame (size %zu) sent successfully. Write time: %lld µs.", frame_size, duration.count());
+        RCLCPP_DEBUG(logger_, "Write_payload: Frame (size %zu) sent successfully. Write time: %ld µs.", frame_size, duration.count()); // Changed %lld to %ld
     }
     
     return true;
@@ -264,45 +282,62 @@ bool SerialCommunicator::read_payload(std::vector<uint8_t>& payload, size_t expe
 
     read_raw_data_into_buffer(); // Attempt to read new data
 
-    const size_t expected_frame_size = 1 + expected_payload_size + 1 + 1; // Header + Payload + Checksum + Tail
+    const size_t crc_field_size = 2; // CRC is 2 bytes
+    // Expected frame: Header (1) + Payload (expected_payload_size) + CRC (2) + Tail (1)
+    const size_t expected_frame_size = 1 + expected_payload_size + crc_field_size + 1;
 
     for (size_t i = 0; (i + expected_frame_size) <= rx_buffer_.size(); ) {
         if (rx_buffer_[i] == PacketFormat::FRAME_HEADER) {
+            // Check if the tail byte matches at the expected position
             if (rx_buffer_[i + expected_frame_size - 1] == PacketFormat::FRAME_TAIL) {
-                // Potential frame found
-                const uint8_t* data_part_ptr = rx_buffer_.data() + i + 1;
-                uint8_t received_checksum = rx_buffer_[i + 1 + expected_payload_size];
-                const uint8_t expected_fixed_checksum = 0x01; // 下位机发送的固定校验和
+                // Potential frame found. Verify CRC.
+                // Data for CRC check: Header + Payload
+                // Starts at rx_buffer_[i], length is 1 (Header) + expected_payload_size
+                uint8_t* data_for_crc_ptr = rx_buffer_.data() + i; // Removed const
+                size_t length_for_crc = 1 + expected_payload_size;
+                
+                uint16_t calculated_crc = crc16::get_CRC16_check_sum(
+                    data_for_crc_ptr, length_for_crc, PacketFormat::CRC16_INIT);
+                
+                // Extract received CRC from frame (LSB then MSB)
+                // CRC LSB is after Header and Payload: index i + 1 (header) + expected_payload_size
+                uint8_t received_crc_lsb = rx_buffer_[i + 1 + expected_payload_size];
+                uint8_t received_crc_msb = rx_buffer_[i + 1 + expected_payload_size + 1];
+                uint16_t received_crc = (static_cast<uint16_t>(received_crc_msb) << 8) | received_crc_lsb;
 
-                if (received_checksum == expected_fixed_checksum) {
-                    // Valid frame
-                    payload.assign(data_part_ptr, data_part_ptr + expected_payload_size);
+                if (calculated_crc == received_crc) {
+                    // CRC match: Valid frame
+                    // Extract payload (it's after the header at rx_buffer_[i+1])
+                    payload.assign(rx_buffer_.data() + i + 1, 
+                                   rx_buffer_.data() + i + 1 + expected_payload_size);
+                    
                     // Remove the processed frame from the buffer
                     rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + i + expected_frame_size);
                     return true;
                 } else {
-                    RCLCPP_WARN(logger_, "Checksum mismatch. Expected 0x%02X, Got 0x%02X. Discarding byte 0x%02X.",
-                                expected_fixed_checksum, received_checksum, rx_buffer_[i]);
-                    // Checksum failed, discard the header and continue search
+                    // CRC mismatch
+                    RCLCPP_WARN(logger_, "CRC mismatch. Expected 0x%04X, Got 0x%04X. Discarding header byte 0x%02X at index %zu.",
+                                calculated_crc, received_crc, rx_buffer_[i], i);
+                    // Discard the header and continue search from the next byte
                     rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + i + 1);
                     i = 0; // Restart search from beginning of modified buffer
-                    continue;
+                    continue; 
                 }
             } else {
-                // Header found, but tail doesn't match. This could be a corrupted frame or
-                // the start of a new frame if expected_frame_size is wrong.
-                // For now, assume it's a bad header and discard it.
-                RCLCPP_DEBUG(logger_, "Header found at %zu, but tail mismatch. Discarding byte 0x%02X.", i, rx_buffer_[i]);
+                // Header found, but tail doesn't match at expected position.
+                RCLCPP_DEBUG(logger_, "Header found at index %zu, but tail mismatch (expected 0x%02X at index %zu, got 0x%02X). Discarding header byte 0x%02X.",
+                             i, PacketFormat::FRAME_TAIL, i + expected_frame_size - 1, rx_buffer_[i + expected_frame_size - 1], rx_buffer_[i]);
+                // Discard the header and continue search from the next byte
                 rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + i + 1);
-                i = 0; // Restart search
-                continue;
+                i = 0; // Restart search from beginning of modified buffer
+                continue; 
             }
         }
-        // If not a header, advance search by one byte in the original buffer logic
-        // but since we erase, we just increment i if no header was found at current i
+        // If not a header at rx_buffer_[i], advance search by one byte.
+        // If we erased, set i=0, and continued, this i++ is skipped for that iteration.
         i++;
     }
-    return false; // No complete, valid frame found
+    return false; // No complete, valid frame found in the current buffer
 }
 
 } // namespace rm_serial
